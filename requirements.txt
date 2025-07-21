@@ -1,3 +1,5 @@
 plotly 
 folium 
 koreanize_matplotlib
+Pillow
+PyMuPDF
