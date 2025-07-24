@@ -35,7 +35,16 @@ options = [
 # 점수 계산을 위해 각 응답에 해당하는 점수를 매핑하는 딕셔너리를 만듭니다.
 score_map = {option: i + 1 for i, option in enumerate(options)}
 
-# --- 3. 웹 앱 UI 구성 ---
+# --- 3. 세션 상태 초기화 ---
+# 현재 질문 인덱스와 응답을 저장할 세션 상태 변수를 초기화합니다.
+if 'current_question_index' not in st.session_state:
+    st.session_state.current_question_index = 0
+if 'responses' not in st.session_state:
+    st.session_state.responses = {}
+if 'submitted' not in st.session_state:
+    st.session_state.submitted = False
+
+# --- 4. 웹 앱 UI 구성 ---
 # 메인 제목을 표시합니다.
 st.title("📝 지식정보처리 역량 진단 설문")
 
@@ -44,40 +53,81 @@ st.markdown("---")
 st.markdown("#### 각 문장을 읽고 자신을 가장 잘 나타낸다고 생각하는 번호를 선택해주세요.")
 st.markdown("---")
 
-# 'st.form'을 사용하여 모든 질문을 하나의 폼으로 묶습니다.
-# 이렇게 하면 '제출하기' 버튼을 누를 때 모든 응답이 한 번에 처리됩니다.
-with st.form("survey_form"):
-    # 응답을 저장할 딕셔너리를 초기화합니다.
-    responses = {}
+# 모든 질문을 완료하지 않았을 때만 질문을 표시합니다.
+if not st.session_state.submitted:
+    current_index = st.session_state.current_question_index
+    
+    if current_index < len(questions):
+        # 현재 질문을 가져옵니다.
+        current_question = questions[current_index]
+        question_key = f"Q{current_index + 1}"
 
-    # 정의된 질문 리스트를 순회하며 각 질문에 대한 라디오 버튼을 생성합니다.
-    for i, question in enumerate(questions):
-        # st.radio를 사용하여 각 질문 항목을 만듭니다.
-        # key를 고유하게 설정하여 각 질문의 응답을 구분합니다.
-        # horizontal=True 옵션으로 버튼을 가로로 배열하여 공간을 효율적으로 사용합니다.
-        responses[f"Q{i+1}"] = st.radio(
-            label=question,
-            options=options,
-            index=2,  # 기본 선택값을 '③ 보통이다'로 설정합니다.
-            horizontal=True
-        )
+        st.subheader(f"문항 {current_index + 1} / {len(questions)}")
 
-    # 폼 내부에 제출 버튼을 생성합니다.
-    submitted = st.form_submit_button("✅ 결과 확인하기")
+        # 'st.form'을 사용하여 각 질문을 하나의 폼으로 묶습니다.
+        with st.form(key=f"question_form_{current_index}"):
+            # st.radio를 사용하여 현재 질문 항목을 만듭니다.
+            # 이전에 응답한 값이 있다면 기본값으로 설정합니다.
+            default_index = options.index(st.session_state.responses.get(question_key, "③ 보통이다"))
+            
+            selected_option = st.radio(
+                label=current_question,
+                options=options,
+                index=default_index,
+                horizontal=True,
+                key=f"radio_{question_key}" # 라디오 버튼의 고유 키
+            )
+            
+            col1, col2 = st.columns([1, 1])
 
-# --- 4. 결과 처리 및 표시 ---
-# '결과 확인하기' 버튼이 눌렸을 때 아래 로직을 실행합니다.
-if submitted:
+            with col1:
+                # 이전 버튼 (첫 번째 질문이 아닐 때만 표시)
+                if current_index > 0:
+                    if st.form_submit_button("◀️ 이전"):
+                        st.session_state.responses[question_key] = selected_option # 현재 응답 저장
+                        st.session_state.current_question_index -= 1
+                        st.rerun() # 페이지 새로고침하여 이전 질문 표시
+            
+            with col2:
+                # 다음 또는 결과 확인 버튼
+                if current_index < len(questions) - 1:
+                    if st.form_submit_button("다음 ▶️"):
+                        st.session_state.responses[question_key] = selected_option # 현재 응답 저장
+                        st.session_state.current_question_index += 1
+                        st.rerun() # 페이지 새로고침하여 다음 질문 표시
+                else:
+                    # 마지막 질문일 경우 '결과 확인하기' 버튼 표시
+                    if st.form_submit_button("✅ 결과 확인하기"):
+                        st.session_state.responses[question_key] = selected_option # 마지막 응답 저장
+                        st.session_state.submitted = True
+                        st.rerun() # 페이지 새로고침하여 결과 표시
+    else:
+        # 모든 질문이 완료되었지만, submitted 상태가 False일 경우 (예외 처리)
+        st.session_state.submitted = True
+        st.rerun()
+
+# --- 5. 결과 처리 및 표시 ---
+# '결과 확인하기' 버튼이 눌렸거나 모든 질문이 완료되었을 때 아래 로직을 실행합니다.
+if st.session_state.submitted:
     st.success("설문에 참여해주셔서 감사합니다!")
     st.markdown("---")
     st.subheader("📊 나의 응답 결과")
 
     # 응답 결과를 깔끔하게 보여주기 위해 pandas 데이터프레임을 사용합니다.
     result_data = {
-        "문항 번호": [f"{i+1}번" for i in range(len(questions))],
-        "나의 응답": [responses[f"Q{i+1}"] for i in range(len(questions))],
-        "점수": [score_map[responses[f"Q{i+1}"]] for i in range(len(questions))]
+        "문항 번호": [],
+        "나의 응답": [],
+        "점수": []
     }
+
+    # 세션 상태에 저장된 응답을 기반으로 데이터프레임을 생성합니다.
+    for i in range(len(questions)):
+        q_key = f"Q{i+1}"
+        if q_key in st.session_state.responses:
+            response_text = st.session_state.responses[q_key]
+            result_data["문항 번호"].append(f"{i+1}번")
+            result_data["나의 응답"].append(response_text)
+            result_data["점수"].append(score_map[response_text])
 
     # 데이터프레임 생성
     df = pd.DataFrame(result_data)
@@ -106,3 +156,9 @@ if submitted:
     - 낮은 점수를 받은 문항을 확인하여 해당 역량을 보완하기 위한 계획을 세워볼 수 있습니다.
     """)
 
+    # 설문 다시 시작 버튼
+    if st.button("설문 다시 시작하기"):
+        st.session_state.current_question_index = 0
+        st.session_state.responses = {}
+        st.session_state.submitted = False
+        st.rerun()
